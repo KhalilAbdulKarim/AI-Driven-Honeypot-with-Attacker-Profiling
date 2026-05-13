@@ -1,0 +1,315 @@
+# import json
+# import os
+# from anthropic import Anthropic
+# from dotenv import load_dotenv
+# from honeypot.db import get_session_detail, save_profile
+
+# load_dotenv()
+
+# client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# SYSTEM_PROMPT = """You are a senior threat intelligence analyst.
+# You will be given a raw SSH honeypot session log and must return ONLY a JSON object — 
+# no prose, no markdown, no explanation. Just the JSON.
+
+# Classify the attacker across these fields:
+
+# {
+#   "skill_level": "script_kiddie" | "intermediate" | "advanced",
+#   "probable_intent": "credential_harvesting" | "cryptomining" | "ransomware" | 
+#                      "reconnaissance" | "data_theft" | "botnet_recruitment" | "unknown",
+#   "detected_tools": ["list", "of", "tools", "or", "techniques"],
+#   "ioc": ["any IPs, domains, hashes, or filenames of interest"],
+#   "defensive_action": "block_ip" | "rate_limit" | "monitor" | "alert_soc" | "ignore",
+#   "summary": "One sentence describing this attacker and their likely goal.",
+#   "confidence": 0.0
+# }
+
+# Skill level guide:
+# - script_kiddie: runs default tools, tries common passwords, no adaptation
+# - intermediate: uses specific commands purposefully, shows Linux knowledge
+# - advanced: lateral movement, custom payloads, evasion attempts, covers tracks
+
+# Confidence is 0.0-1.0 based on how much data the session contains.
+# Low command count = low confidence. Rich session = high confidence."""
+
+
+# def _build_user_message(detail: dict) -> str:
+#     session = detail["session"]
+#     auths = detail["auth_attempts"]
+#     commands = detail["commands"]
+
+#     credentials = [
+#         f"{a['username']}:{a['password']}" for a in auths
+#     ]
+
+#     command_log = []
+#     for c in commands:
+#         command_log.append({
+#             "cmd": c["command"],
+#             "offset_ms": c["offset_ms"],
+#             "response_preview": c["response"][:120] if c["response"] else "",
+#         })
+
+#     payload = {
+#         "source_ip": session.get("client_ip"),
+#         "country": session.get("country"),
+#         "city": session.get("city"),
+#         "isp": session.get("isp"),
+#         "session_duration_s": session.get("duration_s"),
+#         "total_commands": session.get("total_commands"),
+#         "credentials_tried": credentials,
+#         "commands": command_log,
+#     }
+
+#     return f"Analyse this SSH honeypot session and return ONLY JSON:\n\n{json.dumps(payload, indent=2)}"
+
+
+# def _parse_profile(raw: str) -> dict:
+#     """Safely extract JSON from the LLM response."""
+#     raw = raw.strip()
+#     # strip any accidental markdown fences
+#     if raw.startswith("```"):
+#         raw = raw.split("```")[1]
+#         if raw.startswith("json"):
+#             raw = raw[4:]
+#     return json.loads(raw.strip())
+
+
+# def profile_session(session_id: str) -> dict | None:
+#     """
+#     Fetch session from DB, call Claude, save profile back to DB.
+#     Returns the profile dict or None on failure.
+#     """
+#     detail = get_session_detail(session_id)
+#     if not detail["session"]:
+#         print(f"[profiler] session {session_id} not found in DB")
+#         return None
+
+#     if detail["session"].get("profile_json"):
+#         print(f"[profiler] session {session_id} already profiled — skipping")
+#         return json.loads(detail["session"]["profile_json"])
+
+#     total_cmds = detail["session"].get("total_commands", 0)
+#     if total_cmds == 0 and not detail["auth_attempts"]:
+#         print(f"[profiler] session {session_id} has no data — skipping")
+#         return None
+
+#     user_message = _build_user_message(detail)
+
+#     print(f"[profiler] calling Claude for session {session_id} "
+#           f"({total_cmds} commands)...")
+
+#     try:
+#         response = client.messages.create(
+#             model="claude-sonnet-4-20250514",
+#             max_tokens=1024,
+#             system=SYSTEM_PROMPT,
+#             messages=[{"role": "user", "content": user_message}],
+#         )
+#         raw = response.content[0].text
+#         profile = _parse_profile(raw)
+#         profile["session_id"] = session_id
+#         save_profile(session_id, profile)
+#         print(f"[profiler] ✓ {session_id} → {profile.get('skill_level')} / "
+#               f"{profile.get('probable_intent')} (confidence: {profile.get('confidence')})")
+#         return profile
+
+#     except json.JSONDecodeError as e:
+#         print(f"[profiler] JSON parse error for {session_id}: {e}\nRaw: {raw[:200]}")
+#         return None
+#     except Exception as e:
+#         print(f"[profiler] API error for {session_id}: {e}")
+#         return None
+
+
+# def profile_all_unprofiled() -> list[dict]:
+#     """Profile every session that doesn't have a profile yet."""
+#     from honeypot.db import get_all_sessions
+#     sessions = get_all_sessions(limit=500)
+#     unprofiled = [s for s in sessions if not s.get("profile_json")]
+#     print(f"[profiler] {len(unprofiled)} sessions to profile")
+#     results = []
+#     for s in unprofiled:
+#         profile = profile_session(s["id"])
+#         if profile:
+#             results.append(profile)
+#     return results
+
+import hashlib
+import json
+import os
+from anthropic import Anthropic
+from dotenv import load_dotenv
+from honeypot.db import get_session_detail, save_profile
+
+load_dotenv()
+client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# ── in-process dedup cache (survives the run, not restarts) ──────────────────
+_seen_fingerprints: dict[str, str] = {}  # fingerprint → session_id that was profiled
+
+# ── constants ────────────────────────────────────────────────────────────────
+MAX_COMMANDS    = 20    # trim long sessions — first 10 + last 10 most informative
+MAX_RESP_CHARS  = 80    # response preview per command
+MAX_CREDS       = 10    # credential pairs to include
+MAX_OUT_TOKENS  = 300   # profile JSON is tiny — 300 is plenty
+
+# Haiku 3.5: $0.80/M input, $4/M output — ~10x cheaper than Sonnet for this task
+MODEL = "claude-haiku-4-5-20251001"
+
+# Tight system prompt — every token counts
+SYSTEM_PROMPT = (
+    "You are a threat intelligence analyst. "
+    "Respond ONLY with a JSON object, no prose, no markdown fences.\n"
+    "Schema:\n"
+    '{"skill_level":"script_kiddie|intermediate|advanced",'
+    '"probable_intent":"credential_harvesting|cryptomining|ransomware|reconnaissance|data_theft|botnet_recruitment|unknown",'
+    '"detected_tools":["..."],'
+    '"ioc":["..."],'
+    '"defensive_action":"block_ip|rate_limit|monitor|alert_soc|ignore",'
+    '"summary":"one sentence",'
+    '"confidence":0.0}'
+)
+
+
+def _fingerprint(detail: dict) -> str:
+    """Hash of credential pairs + command list — identical bot waves hash the same."""
+    cmds  = [c["command"] for c in detail["commands"]]
+    creds = [f"{a['username']}:{a['password']}" for a in detail["auth_attempts"]]
+    raw   = json.dumps({"c": sorted(creds), "k": cmds}, sort_keys=True)
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
+def _should_skip(detail: dict) -> bool:
+    """Skip empty sessions — no point sending them to the LLM."""
+    return (
+        not detail["commands"] and
+        not detail["auth_attempts"]
+    )
+
+
+def _trim_payload(detail: dict) -> dict:
+    """
+    Keep only what the LLM actually needs.
+    For long command lists: first 10 + last 10 (setup + payload delivery).
+    Truncate response previews aggressively.
+    """
+    session = detail["session"]
+    cmds    = detail["commands"]
+    auths   = detail["auth_attempts"]
+
+    # first 10 + last 10 for long sessions, no duplicates
+    if len(cmds) > MAX_COMMANDS:
+        head = cmds[:10]
+        tail = cmds[-10:]
+        cmds = head + tail
+
+    trimmed_cmds = [
+        {
+            "cmd":       c["command"],
+            "offset_ms": c["offset_ms"],
+            "resp":      (c["response"] or "")[:MAX_RESP_CHARS],
+        }
+        for c in cmds
+    ]
+
+    trimmed_creds = [
+        f"{a['username']}:{a['password']}"
+        for a in auths[:MAX_CREDS]
+    ]
+
+    return {
+        "ip":       session.get("client_ip"),
+        "country":  session.get("country"),
+        "isp":      session.get("isp"),
+        "dur_s":    session.get("duration_s"),
+        "n_cmds":   session.get("total_commands"),  # true total even if trimmed
+        "creds":    trimmed_creds,
+        "commands": trimmed_cmds,
+    }
+
+
+def _parse_profile(raw: str) -> dict:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1].lstrip("json").strip()
+    return json.loads(raw)
+
+
+def profile_session(session_id: str) -> dict | None:
+    detail = get_session_detail(session_id)
+
+    if not detail["session"]:
+        print(f"[profiler] {session_id} not found")
+        return None
+
+    # already profiled — return cached result, never call API again
+    if detail["session"].get("profile_json"):
+        return json.loads(detail["session"]["profile_json"])
+
+    # lever 1: skip empty sessions
+    if _should_skip(detail):
+        print(f"[profiler] {session_id} skipped (no data)")
+        return None
+
+    # lever 2: dedup — identical attack patterns share one profile
+    fp = _fingerprint(detail)
+    if fp in _seen_fingerprints:
+        original_id = _seen_fingerprints[fp]
+        print(f"[profiler] {session_id} is duplicate of {original_id} — reusing profile")
+        original = get_session_detail(original_id)["session"]
+        if original.get("profile_json"):
+            profile = json.loads(original["profile_json"])
+            profile["session_id"]      = session_id
+            profile["_reused_from"]    = original_id
+            save_profile(session_id, profile)
+            return profile
+
+    _seen_fingerprints[fp] = session_id
+
+    # lever 3: trim payload
+    payload = _trim_payload(detail)
+    user_msg = f"Analyse this SSH honeypot session:\n{json.dumps(payload)}"
+
+    n = detail["session"].get("total_commands", 0)
+    print(f"[profiler] calling {MODEL} for {session_id} ({n} cmds, fp={fp})...")
+
+    try:
+        resp = client.messages.create(
+            model=MODEL,
+            max_tokens=MAX_OUT_TOKENS,   # lever 4: cap output tokens
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+
+        # log actual token usage so you can tune further
+        usage = resp.usage
+        cost_usd = (usage.input_tokens * 0.80 + usage.output_tokens * 4.0) / 1_000_000
+        print(f"[profiler] tokens in={usage.input_tokens} out={usage.output_tokens} "
+              f"est=${cost_usd:.5f}")
+
+        raw     = resp.content[0].text
+        profile = _parse_profile(raw)
+        profile["session_id"] = session_id
+        profile["_tokens"]    = {"in": usage.input_tokens, "out": usage.output_tokens}
+
+        save_profile(session_id, profile)
+        print(f"[profiler] ✓ {session_id} → {profile.get('skill_level')} / "
+              f"{profile.get('probable_intent')} conf={profile.get('confidence')}")
+        return profile
+
+    except json.JSONDecodeError as e:
+        print(f"[profiler] JSON parse failed for {session_id}: {e}")
+        return None
+    except Exception as e:
+        print(f"[profiler] API error for {session_id}: {e}")
+        return None
+
+
+def profile_all_unprofiled() -> list[dict]:
+    from honeypot.db import get_all_sessions
+    sessions   = get_all_sessions(limit=500)
+    unprofiled = [s for s in sessions if not s.get("profile_json")]
+    print(f"[profiler] {len(unprofiled)} sessions queued")
+    return [p for s in unprofiled if (p := profile_session(s["id"]))]
