@@ -23,16 +23,46 @@ MODEL = "claude-haiku-4-5-20251001"
 
 # Tight system prompt — every token counts
 SYSTEM_PROMPT = (
-    "You are a threat intelligence analyst. "
-    "Respond ONLY with a JSON object, no prose, no markdown fences.\n"
+    "You are a senior threat intelligence analyst at a SOC. "
+    "Analyze the SSH honeypot session and return ONLY a JSON object — "
+    "no prose, no markdown fences, no explanation.\n\n"
     "Schema:\n"
-    '{"skill_level":"script_kiddie|intermediate|advanced",'
-    '"probable_intent":"credential_harvesting|cryptomining|ransomware|reconnaissance|data_theft|botnet_recruitment|unknown",'
-    '"detected_tools":["..."],'
-    '"ioc":["..."],'
-    '"defensive_action":"block_ip|rate_limit|monitor|alert_soc|ignore",'
-    '"summary":"one sentence",'
-    '"confidence":0.0}'
+    "{\n"
+    '  "skill_level": "script_kiddie|intermediate|advanced",\n'
+    '  "probable_intent": "credential_harvesting|cryptomining|ransomware|reconnaissance|data_theft|botnet_recruitment|unknown",\n'
+    '  "detected_tools": ["tool or technique name"],\n'
+    '  "ioc": ["suspicious IPs, domains, filenames, hashes"],\n'
+    '  "mitre": [\n'
+    '    {\n'
+    '      "tactic": "tactic name e.g. Initial Access",\n'
+    '      "technique_id": "e.g. T1110.001",\n'
+    '      "technique_name": "e.g. Brute Force: Password Guessing",\n'
+    '      "evidence": "exact command or behavior that triggered this"\n'
+    '    }\n'
+    '  ],\n'
+    '  "kill_chain_phase": "reconnaissance|weaponization|delivery|exploitation|installation|command_and_control|actions_on_objectives",\n'
+    '  "defensive_action": "block_ip|rate_limit|monitor|alert_soc|ignore",\n'
+    '  "defensive_recommendations": ["specific actionable recommendation"],\n'
+    '  "summary": "2 sentences max — attacker profile and likely goal",\n'
+    '  "confidence": 0.0\n'
+    "}\n\n"
+    "MITRE mapping rules — only map what you actually observed:\n"
+    "- Multiple failed passwords → T1110.001 Brute Force: Password Guessing (TA0006 Credential Access)\n"
+    "- cat /etc/passwd or /etc/shadow → T1003.008 OS Credential Dumping (TA0006)\n"
+    "- wget/curl to external URL → T1105 Ingress Tool Transfer (TA0011 Command and Control)\n"
+    "- crontab -e or /etc/cron → T1053.005 Scheduled Task/Job: Cron (TA0003 Persistence)\n"
+    "- useradd or passwd → T1136.001 Create Account: Local Account (TA0003 Persistence)\n"
+    "- whoami/id/uname → T1033 System Owner/User Discovery (TA0007 Discovery)\n"
+    "- ifconfig/ip addr/netstat → T1016 System Network Configuration Discovery (TA0007)\n"
+    "- ps/top → T1057 Process Discovery (TA0007)\n"
+    "- ls/find/locate → T1083 File and Directory Discovery (TA0007)\n"
+    "- base64 decode of payload → T1140 Deobfuscate/Decode Files (TA0005 Defense Evasion)\n"
+    "- iptables -F → T1562.004 Disable Firewall (TA0005 Defense Evasion)\n"
+    "- chmod +x on downloaded file → T1222 File Permissions Modification (TA0005)\n"
+    "- ssh-keygen or authorized_keys → T1098.004 SSH Authorized Keys (TA0003 Persistence)\n"
+    "- /proc/cpuinfo or mining keywords → T1496 Resource Hijacking (TA0040 Impact)\n"
+    "- Any shell execution → T1059.004 Command and Scripting: Unix Shell (TA0002 Execution)\n"
+    "Map ALL applicable techniques. Evidence must quote the actual command seen."
 )
 
 
