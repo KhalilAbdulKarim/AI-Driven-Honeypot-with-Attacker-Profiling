@@ -6,11 +6,5 @@ export default defineConfig({
   server: {
     port: 3001,
     strictPort : true,
-    proxy: {
-      '/api': {
-        target: 'http://13.37.71.4:5002',
-        changeOrigin: true,
-      }
-    }
   }
 })
