@@ -75,11 +75,9 @@ def _fingerprint(detail: dict) -> str:
 
 
 def _should_skip(detail: dict) -> bool:
-    """Skip empty sessions — no point sending them to the LLM."""
-    return (
-        not detail["commands"] and
-        not detail["auth_attempts"]
-    )
+    """Skip sessions with no commands and no auth attempts — likely noise."""
+    return not detail["commands"] and not detail["auth_attempts"]
+
 
 
 def _trim_payload(detail: dict) -> dict:
@@ -200,9 +198,21 @@ def profile_session(session_id: str) -> dict | None:
         return None
 
 
+# def profile_all_unprofiled() -> list[dict]:
+#     from honeypot.db import get_all_sessions
+#     sessions   = get_all_sessions(limit=500)
+#     unprofiled = [s for s in sessions if not s.get("profile_json")]
+#     print(f"[profiler] {len(unprofiled)} sessions queued")
+#     return [p for s in unprofiled if (p := profile_session(s["id"]))]
+
 def profile_all_unprofiled() -> list[dict]:
     from honeypot.db import get_all_sessions
     sessions   = get_all_sessions(limit=500)
     unprofiled = [s for s in sessions if not s.get("profile_json")]
     print(f"[profiler] {len(unprofiled)} sessions queued")
-    return [p for s in unprofiled if (p := profile_session(s["id"]))]
+    profiles = []
+    for s in unprofiled:
+        p = profile_session(s["id"])
+        if p:
+            profiles.append(p)
+    return profiles
