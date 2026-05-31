@@ -15,8 +15,8 @@ _seen_fingerprints: dict[str, str] = {}  # fingerprint → session_id that was p
 # ── constants ────────────────────────────────────────────────────────────────
 MAX_COMMANDS    = 20    # trim long sessions — first 10 + last 10 most informative
 MAX_RESP_CHARS  = 80    # response preview per command
-MAX_CREDS       = 10    # credential pairs to include
-MAX_OUT_TOKENS  = 300   # profile JSON is tiny — 300 is plenty
+MAX_CREDS       = 15    # credential pairs to include
+MAX_OUT_TOKENS  = 1024  
 
 # Haiku 3.5: $0.80/M input, $4/M output — ~10x cheaper than Sonnet for this task
 MODEL = "claude-haiku-4-5-20251001"
