@@ -168,6 +168,7 @@ import uuid
 from pathlib import Path
 
 import paramiko
+from paramiko import transport
 
 from honeypot.fake_shell import get_prompt, handle_command, ShellSession
 from honeypot.logger import SessionLogger
@@ -328,14 +329,14 @@ def _handle_session(client_sock: socket.socket, addr: tuple):
     transport.local_version = "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6"
 
     server = HoneypotInterface(logger)
+   
     try:
         transport.start_server(server=server)
-    except (paramiko.SSHException, EOFError, ConnectionResetError):
-        # scanner probed port but didn't complete handshake
+    except (paramiko.SSHException, EOFError, ConnectionResetError,
+            UnicodeDecodeError, UnicodeError, ValueError):
         logger.close()
         return
-    except Exception as e:
-        print(f"[transport error] {session_id}: {e}")
+    except Exception:
         logger.close()
         return
 
