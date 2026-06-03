@@ -45,6 +45,12 @@ def init_db():
             timestamp   TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         );
+                           
+        CREATE TABLE IF NOT EXISTS fingerprints (
+        fingerprint TEXT PRIMARY KEY,
+        session_id  TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+        );                   
 
         CREATE TABLE IF NOT EXISTS commands (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,3 +180,20 @@ def get_sessions_by_country() -> list:
             ORDER BY count DESC
         """).fetchall()
     return [dict(r) for r in rows]
+
+def get_fingerprint(fp: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT session_id FROM fingerprints WHERE fingerprint = ?",
+            (fp,)
+        ).fetchone()
+    return row[0] if row else None
+
+
+def save_fingerprint(fp: str, session_id: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO fingerprints "
+            "(fingerprint, session_id, created_at) VALUES (?,?,?)",
+            (fp, session_id, datetime.now(timezone.utc).isoformat())
+        )

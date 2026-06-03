@@ -26,8 +26,27 @@ export default function NavBar({ page, setPage, total, lastUpdate, loading }) {
           }}>{label}</button>
         ))}
       </nav>
+      <a
+        href="http://13.37.71.4:5002/api/export/csv"
+        download
+        style={{
+          marginLeft: 'auto',
+          marginRight: 16,
+          fontSize: 12,
+          color: 'var(--muted)',
+          textDecoration: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 10px',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+        }}
+      >
+        ↓ Export CSV
+      </a>
 
-      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#4b5563' }}>
+      <span style={{ fontSize: 11, color: '#4b5563' }}>
         {loading ? 'Loading…' : lastUpdate ? `Updated ${lastUpdate.toLocaleTimeString()}` : ''}
       </span>
     </header>

@@ -2,6 +2,26 @@ import posixpath
 import re
 import random
 import hashlib
+from datetime import datetime, timezone, timedelta
+import random as _rng
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def _fmt_date() -> str:
+    return _now().strftime("%a %b %d %H:%M:%S UTC %Y")
+
+def _fmt_login(offset_hours: int = 0) -> str:
+    dt = _now() - timedelta(hours=offset_hours)
+    return dt.strftime("%a %b %d %H:%M")
+
+def _uptime_str() -> str:
+    now   = _now()
+    days  = (now.toordinal() % 90) + 5
+    load  = round(_rng.uniform(0.01, 0.15), 2)
+    return (f" {now.strftime('%H:%M:%S')} up {days} days, "
+            f"{now.hour:2d}:{now.minute:02d},  1 user,  "
+            f"load average: {load}, {round(load*0.9,2)}, {round(load*0.8,2)}")
 
 HOSTNAME = "ubuntu-server"
 USERNAME = "root"
@@ -520,9 +540,9 @@ def handle_command(raw: str, session: ShellSession) -> str:
 
     if base == "w":
         return _write_redirect(
-            f"{UPTIME_STR}\n"
-            "USER     TTY      FROM             LOGIN@   IDLE JCPU   PCPU WHAT\n"
-            "root     pts/0    10.0.2.2         09:12    0.00s  0.04s  0.00s w"
+        f"{_uptime_str()}\n"
+        "USER     TTY      FROM             LOGIN@   IDLE JCPU   PCPU WHAT\n"
+        f"root     pts/0    10.0.2.2         {_now().strftime('%H:%M')}    0.00s  0.04s  0.00s w"
         )
 
     if base == "who":
@@ -532,13 +552,10 @@ def handle_command(raw: str, session: ShellSession) -> str:
 
     if base == "last":
         return _write_redirect(
-            "root     pts/0        10.0.2.2         Mon Jan 15 09:12   "
-            "still logged in\n"
-            "root     pts/0        10.0.2.2         Sun Jan 14 22:45 - "
-            "23:01  (00:15)\n"
-            "reboot   system boot  5.15.0-91-generi Sun Jan 14 22:44   "
-            "still running\n\n"
-            "wtmp begins Sun Nov 26 14:32:01 2023"
+        f"root     pts/0        10.0.2.2         {_fmt_login(2)}   still logged in\n"
+        f"root     pts/0        10.0.2.2         {_fmt_login(10)} - {_fmt_login(9)}  (00:15)\n"
+        f"reboot   system boot  5.15.0-91-generi {_fmt_login(48)}   still running\n\n"
+        "wtmp begins " + (_now() - timedelta(days=90)).strftime("%a %b %d %H:%M:%S %Y")
         )
 
     if base == "lastlog":
@@ -576,10 +593,10 @@ def handle_command(raw: str, session: ShellSession) -> str:
         return _write_redirect(HOSTNAME)
 
     if base == "uptime":
-        return _write_redirect(UPTIME_STR)
+        return _write_redirect(_uptime_str())
 
     if base == "date":
-        return _write_redirect("Mon Jan 15 14:32:01 UTC 2024")
+        return _write_redirect(_fmt_date())
 
     if base == "lsb_release":
         return _write_redirect(
@@ -687,6 +704,30 @@ def handle_command(raw: str, session: ShellSession) -> str:
     if base == "cat":
         if len(parts) < 2:
             return ""
+        path = session.resolve_path(parts[1])
+
+        # dynamic log files
+        if path == "/var/log/auth.log":
+            now = _now()
+            t1  = (now - timedelta(minutes=5)).strftime("%b %d %H:%M:%S")
+            t2  = (now - timedelta(minutes=3)).strftime("%b %d %H:%M:%S")
+            t3  = now.strftime("%b %d %H:%M:%S")
+            return _write_redirect(
+                f"{t1} ubuntu-server sshd[1337]: Failed password for root from 192.168.1.100 port 54321 ssh2\n"
+                f"{t2} ubuntu-server sshd[1337]: Failed password for root from 192.168.1.100 port 54321 ssh2\n"
+                f"{t3} ubuntu-server sshd[1338]: Accepted password for root from 192.168.1.100 port 54322 ssh2\n"
+                f"{t3} ubuntu-server sshd[1338]: pam_unix(sshd:session): session opened for user root\n"
+            )
+
+        if path == "/var/log/syslog":
+            now = _now()
+            t1  = (now - timedelta(minutes=30)).strftime("%b %d %H:%M:%S")
+            t2  = now.strftime("%b %d %H:%M:%S")
+            return _write_redirect(
+                f"{t1} ubuntu-server CRON[1234]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)\n"
+                f"{t2} ubuntu-server systemd[1]: Started Session 42 of user root.\n"
+            )
+    
         results = []
         for arg in parts[1:]:
             if arg.startswith("-"):

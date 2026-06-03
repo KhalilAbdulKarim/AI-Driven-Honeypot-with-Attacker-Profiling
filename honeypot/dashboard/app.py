@@ -1,7 +1,11 @@
+import csv
+import io
+from flask import Flask, jsonify, send_from_directory, request, Response
 import json
 import os
 import sys
 from pathlib import Path
+
 
 PROJECT_ROOT = Path(__file__).parent.parent
 os.chdir(PROJECT_ROOT)
@@ -153,23 +157,69 @@ def api_stats():
 def api_health():
     return jsonify({"status": "ok"})
 
+@app.route("/api/export/csv")
+def api_export_csv():
+    sessions = get_all_sessions(limit=10000)
+    output   = io.StringIO()
+    writer   = csv.writer(output)
+
+    writer.writerow([
+        "session_id", "ip", "country", "city", "isp",
+        "started_at", "duration_s", "total_commands",
+        "total_auth_attempts", "skill_level", "probable_intent",
+        "defensive_action", "confidence", "summary", "mitre_techniques",
+    ])
+
+    for s in sessions:
+        profile = _parse_profile(s)
+        mitre   = "|".join(
+            m.get("technique_id", "")
+            for m in (profile.get("mitre", []) if profile else [])
+        )
+        writer.writerow([
+            s["id"],
+            s["client_ip"],
+            s.get("country", ""),
+            s.get("city", ""),
+            s.get("isp", ""),
+            s.get("started_at", ""),
+            s.get("duration_s", ""),
+            s.get("total_commands", 0),
+            s.get("total_auth_attempts", 0),
+            profile.get("skill_level", "")      if profile else "",
+            profile.get("probable_intent", "")  if profile else "",
+            profile.get("defensive_action", "") if profile else "",
+            profile.get("confidence", "")       if profile else "",
+            profile.get("summary", "")          if profile else "",
+            mitre,
+        ])
+
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": "attachment;filename=honeypot_sessions.csv"
+        },
+    )
+
 
 # ── serve React build (production) ───────────────────────────────────────────
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path: str):
+    # never intercept API routes
+    if path.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+
     if not REACT_DIST.exists():
-        return jsonify({
-            "error": "React build not found. Run: cd dashboard/react-ui && npm run build"
-        }), 404
+        return jsonify({"error": "React build not found"}), 404
 
     target = REACT_DIST / path
     if path and target.exists():
         return send_from_directory(REACT_DIST, path)
 
-    # SPA fallback — always return index.html for unknown paths
     return send_from_directory(REACT_DIST, "index.html")
-
 
 # ── entrypoint ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
