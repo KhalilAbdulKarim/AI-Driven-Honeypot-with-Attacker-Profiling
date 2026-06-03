@@ -21,7 +21,6 @@ MAX_OUT_TOKENS  = 1024
 # Haiku 3.5: $0.80/M input, $4/M output — ~10x cheaper than Sonnet for this task
 MODEL = "claude-haiku-4-5-20251001"
 
-# Tight system prompt — every token counts
 SYSTEM_PROMPT = (
     "You are a senior threat intelligence analyst at a SOC. "
     "Analyze the SSH honeypot session and return ONLY a JSON object — "
@@ -46,23 +45,27 @@ SYSTEM_PROMPT = (
     '  "summary": "2 sentences max — attacker profile and likely goal",\n'
     '  "confidence": 0.0\n'
     "}\n\n"
-    "MITRE mapping rules — only map what you actually observed:\n"
-    "- Multiple failed passwords → T1110.001 Brute Force: Password Guessing (TA0006 Credential Access)\n"
+    "MITRE mapping rules — map ALL that apply, minimum 1 technique per session:\n"
+    "- ANY auth attempt → T1110.001 Brute Force: Password Guessing (TA0006 Credential Access) — ALWAYS include this\n"
+    "- ANY SSH connection from external IP → T1133 External Remote Services (TA0001 Initial Access)\n"
+    "- Repeated connections same IP → T1110 Brute Force (TA0006 Credential Access)\n"
     "- cat /etc/passwd or /etc/shadow → T1003.008 OS Credential Dumping (TA0006)\n"
-    "- wget/curl to external URL → T1105 Ingress Tool Transfer (TA0011 Command and Control)\n"
+    "- wget/curl to external URL → T1105 Ingress Tool Transfer (TA0011 C2)\n"
     "- crontab -e or /etc/cron → T1053.005 Scheduled Task/Job: Cron (TA0003 Persistence)\n"
     "- useradd or passwd → T1136.001 Create Account: Local Account (TA0003 Persistence)\n"
     "- whoami/id/uname → T1033 System Owner/User Discovery (TA0007 Discovery)\n"
     "- ifconfig/ip addr/netstat → T1016 System Network Configuration Discovery (TA0007)\n"
     "- ps/top → T1057 Process Discovery (TA0007)\n"
     "- ls/find/locate → T1083 File and Directory Discovery (TA0007)\n"
-    "- base64 decode of payload → T1140 Deobfuscate/Decode Files (TA0005 Defense Evasion)\n"
+    "- base64 decode → T1140 Deobfuscate/Decode Files (TA0005 Defense Evasion)\n"
     "- iptables -F → T1562.004 Disable Firewall (TA0005 Defense Evasion)\n"
     "- chmod +x on downloaded file → T1222 File Permissions Modification (TA0005)\n"
     "- ssh-keygen or authorized_keys → T1098.004 SSH Authorized Keys (TA0003 Persistence)\n"
     "- /proc/cpuinfo or mining keywords → T1496 Resource Hijacking (TA0040 Impact)\n"
     "- Any shell execution → T1059.004 Command and Scripting: Unix Shell (TA0002 Execution)\n"
-    "Map ALL applicable techniques. Evidence must quote the actual command seen."
+    "- curl/wget 169.254.169.254 → T1552.005 Cloud Instance Metadata API (TA0006)\n"
+    "Evidence must quote the actual credential or command seen. "
+    "mitre array must NEVER be empty — every session has at least T1110.001 and T1133."
 )
 
 

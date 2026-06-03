@@ -8,15 +8,7 @@ export default function NavBar({ page, setPage, total, lastUpdate, loading }) {
       display: 'flex', alignItems: 'center', gap: 0, height: 48,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 32 }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'pulse 2s infinite' }} />
-        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
-        <span style={{ fontSize: 14, fontWeight: 500, color: '#e2e4ec' }}>Honeypot</span>
-        {total > 0 && (
-          <span style={{
-            background: '#1a1d27', border: '1px solid #2a2d3a',
-            borderRadius: 12, padding: '1px 8px', fontSize: 11, color: '#6b7280',
-          }}>{total} sessions</span>
-        )}
+        <span style={{ fontSize: 14, fontWeight: 500, color: '#ef0909' }}>HONEYPOT</span>
       </div>
 
       {/* nav tabs */}

@@ -231,9 +231,7 @@ class HoneypotInterface(paramiko.ServerInterface):
         self.event.set()
         return True
 
-    def check_channel_pty_request(
-        self, channel, term, width, height, pixelwidth, pixelheight, modes
-    ):
+    def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
         return True
 
     def check_channel_exec_request(self, channel, command):
@@ -256,6 +254,32 @@ class HoneypotInterface(paramiko.ServerInterface):
 def _run_shell(channel, transport, logger, session_id):
     """Handle interactive shell session."""
     session = ShellSession()
+
+    # dynamic MOTD — realistic date every connection
+    from datetime import datetime, timezone
+    now        = datetime.now(timezone.utc)
+    sys_date   = now.strftime("%a %b %d %H:%M:%S UTC %Y")
+    login_time = now.strftime("%a %b %d %H:%M:%S %Y")
+
+    MOTD = (
+        "\r\n"
+        "Welcome to Ubuntu 22.04.3 LTS (GNU/Linux 5.15.0-91-generic x86_64)\r\n"
+        "\r\n"
+        " * Documentation:  https://help.ubuntu.com\r\n"
+        " * Management:     https://landscape.canonical.com\r\n"
+        " * Support:        https://ubuntu.com/advantage\r\n"
+        "\r\n"
+        f"  System information as of {sys_date}\r\n"
+        "\r\n"
+        "  System load:  0.08              Processes:             98\r\n"
+        "  Usage of /:   43.2% of 19.52GB  Users logged in:       0\r\n"
+        "  Memory usage: 29%               IPv4 address for eth0: 10.0.2.15\r\n"
+        "  Swap usage:   0%\r\n"
+        "\r\n"
+        f"Last login: {login_time} from 192.168.1.100\r\n"
+        "\r\n"
+    )
+    channel.send(MOTD.encode())
     channel.send(get_prompt(session).encode())
 
     buf = b""
@@ -264,57 +288,45 @@ def _run_shell(channel, transport, logger, session_id):
             data = channel.recv(1024)
             if not data:
                 break
-
             for byte in data:
                 c = bytes([byte])
-
                 if c in (b"\r", b"\n"):
                     channel.send(b"\r\n")
                     command = buf.decode(errors="replace").strip()
                     buf = b""
-
                     if command:
                         response = handle_command(command, session)
                         logger.log_command(command, response)
-
                         if session.exited:
                             channel.send(b"logout\r\n")
                             return
-
                         if response:
                             channel.send((response + "\r\n").encode())
-
                     channel.send(get_prompt(session).encode())
-
                 elif c in (b"\x7f", b"\x08"):
                     # backspace
                     if buf:
                         buf = buf[:-1]
                         channel.send(b"\x08 \x08")
-
                 elif c == b"\x03":
                     # ctrl+c
                     buf = b""
                     channel.send(b"^C\r\n")
                     channel.send(get_prompt(session).encode())
-
                 elif c == b"\x04":
                     # ctrl+d — EOF
                     channel.send(b"logout\r\n")
                     return
-
                 elif c == b"\x1b":
                     # escape sequences — swallow silently
                     pass
-
                 elif len(buf) < 4096:
                     buf += c
                     channel.send(c)
-
     except socket.timeout:
         pass
     except Exception as e:
-        print(f"[shell error] {session_id}: {e}")
+        print(f"[shell error] {session_id}: {e}")    
 
 
 def _handle_session(client_sock: socket.socket, addr: tuple):
