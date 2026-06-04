@@ -7,19 +7,26 @@ const SKILL_COLOR = {
 }
 
 export default function ActivityFeed({ sessions }) {
-  const recent = [...sessions]
+
+  const seen = new Set()
+  const unique = [...sessions]
     .sort((a, b) => new Date(b.started_at) - new Date(a.started_at))
+    .filter(s => {
+      if (seen.has(s.ip)) return false
+      seen.add(s.ip)
+      return true
+    })
     .slice(0, 20)
 
   return (
     <div style={{ background: '#13161e', border: '1px solid #2a2d3a', borderRadius: 10, padding: 16 }}>
       <div style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
-        Activity feed
+        Activity feed — {sessions.length} total sessions
       </div>
       <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {recent.length === 0
+        {unique.length === 0
           ? <div style={{ color: '#4b5563', fontSize: 12 }}>No sessions yet</div>
-          : recent.map(s => <FeedItem key={s.id} session={s} />)}
+          : unique.map(s => <FeedItem key={s.id} session={s} />)}
       </div>
     </div>
   )

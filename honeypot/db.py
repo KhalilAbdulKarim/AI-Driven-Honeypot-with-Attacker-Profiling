@@ -197,3 +197,15 @@ def save_fingerprint(fp: str, session_id: str):
             "(fingerprint, session_id, created_at) VALUES (?,?,?)",
             (fp, session_id, datetime.now(timezone.utc).isoformat())
         )
+
+def get_top_credentials(limit: int = 20) -> list:
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT username, password, COUNT(*) as count
+            FROM auth_attempts
+            WHERE NOT (username = 'unknown' AND password = 'connection')
+            GROUP BY username, password
+            ORDER BY count DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+    return [dict(r) for r in rows]        
