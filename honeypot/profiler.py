@@ -72,9 +72,19 @@ SYSTEM_PROMPT = (
 
 
 def _fingerprint(detail: dict) -> str:
-    cmds  = [c["command"] for c in detail["commands"]]
-    creds = [f"{a['username']}:{a['password']}" for a in detail["auth_attempts"]]
-    raw   = json.dumps({"c": sorted(creds), "k": cmds}, sort_keys=True)
+    cmds    = [c["command"] for c in detail["commands"]]
+    creds   = [
+        f"{a['username']}:{a['password']}"
+        for a in detail["auth_attempts"]
+        if a.get("username") != "unknown"  # exclude fake connection entry
+    ]
+    country = detail["session"].get("country", "")
+    isp     = detail["session"].get("isp", "")
+    raw     = json.dumps({
+        "c":      sorted(creds),
+        "k":      cmds,
+        "region": f"{country}|{isp}",   # different countries = different profiles
+    }, sort_keys=True)
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 

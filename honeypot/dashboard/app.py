@@ -71,7 +71,7 @@ def _format_session(s: dict) -> dict:
 # ── API routes ────────────────────────────────────────────────────────────────
 @app.route("/api/sessions")
 def api_sessions():
-    limit = min(int(request.args.get("limit", 200)), 500)
+    limit = min(int(request.args.get("limit", 2000)), 5000)
     sessions = get_all_sessions(limit=limit)
     return jsonify([_format_session(s) for s in sessions])
 
